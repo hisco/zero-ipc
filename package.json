@@ -1,0 +1,27 @@
+{
+  "name": "zero-ipc",
+  "version": "0.0.1",
+  "description": "Fastest IPC communication module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "keywords": [
+    "ipc",
+    "fast",
+    "inter",
+    "process",
+    "communication"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hisco/zero-ipc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hisco/zero-ipc/issues"
+  },
+  "homepage": "https://github.com/hisco",
+  "author": "Eyald <hisco@googlegroups.com‬>",
+  "license": "MIT",
+  "dependencies": {
+    "zeroq": "^1.0.3"
+  }
+}
