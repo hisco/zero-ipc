@@ -1,4 +1,4 @@
-const { ZeroQueue } = require('zeroq');
+const { TasksQueue } = require('zeroq');
 const { EventEmitter } = require('events');
 
 const MAGIC_NUMBER_TO_CONVERT_STRING_TO_BUFFER_FOR_SPEED = 100;
@@ -122,7 +122,7 @@ class IPCServerConnection extends EventEmitter{
         this.container = container;
         this.outgoingSocket = outgoingSocket;
         this.incomingSocket = incomingSocket;
-        this.writeQueue = new ZeroQueue(1);
+        this.writeQueue = new TasksQueue(1);
         this.handleFailures();
     }
     handleFailures(){
@@ -210,7 +210,7 @@ class IPCClient extends EventEmitter{
             
             onConnection(connection)
         });
-        this.writeQueue = new ZeroQueue(1);
+        this.writeQueue = new TasksQueue(1);
         this.send = this._waitAndSend.bind(this);
 
     }

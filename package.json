@@ -1,6 +1,6 @@
 {
   "name": "zero-ipc",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Fastest IPC communication module",
   "main": "src/index.js",
   "types": "src/index.d.ts",
@@ -22,6 +22,6 @@
   "author": "Eyald <hisco@googlegroups.com‬>",
   "license": "MIT",
   "dependencies": {
-    "zeroq": "^1.0.3"
+    "zeroq": "^1.0.6"
   }
 }
