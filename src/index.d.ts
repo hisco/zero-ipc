@@ -1,3 +1,4 @@
+import * as Buffer from 'buffer';
 declare module ZeroIPC{
     export interface Net{
         createConnection({path : string} , onConnection : ()=>void):void
@@ -23,8 +24,8 @@ declare module ZeroIPC{
     type onClientSocket = ()=>void;
     type onConnection = (connection : IPCServerConnection)=>void;
     export class IPCSingleDirectionServer{
-        static get net():Net;
-        static get fs():FS;
+        static net:Net;
+        static fs:FS;
         static saflyRemovePreviousFiles(path:string):void;
         constructor(onClientSocket? : onClientSocket);
         listen(path:string|number , removeOpenFiles? : boolean):Promise<void>;
@@ -54,15 +55,10 @@ declare module ZeroIPC{
         private addConnection(connection : IPCServerConnection):void;
 
     }
+
     export class IPCClient{
-        static get net():Net;
-        static saflyRemovePreviousFiles(path:string):void;
-        constructor(onClientSocket : onClientSocket);
-        listen(path:string|number , removeOpenFiles? : boolean):Promise<void>;
-    }
-    export class IPCClient{
-        static get net():Net;
-        static get fs():FS;
+        static net:Net;
+        static fs:FS;
         static saflyRemovePreviousFiles(path:string):void;
         constructor(onClientSocket : onClientSocket);
         listen(path:string|number , removeOpenFiles? : boolean):Promise<void>;

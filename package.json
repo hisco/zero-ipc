@@ -1,6 +1,6 @@
 {
   "name": "zero-ipc",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Fastest IPC communication module",
   "main": "src/index.js",
   "types": "src/index.d.ts",
