@@ -62,6 +62,22 @@ declare module ZeroIPC{
         static saflyRemovePreviousFiles(path:string):void;
         constructor(onClientSocket : onClientSocket);
         listen(path:string|number , removeOpenFiles? : boolean):Promise<void>;
+        public sendWithReplay(msgBuffer : string | Buffer , timeoutInMs : number , onResponse : (response:Buffer)=>void):void;
+        public sendAndObserve(msgBuffer : string | Buffer , timeoutInMs : number , onNext : (response:Buffer)=>void, onComplete : (response:Buffer)=>void, onError : (response:Buffer)=>void):void;
+        public static promiseSendWithReplay(client : IPCClient, msgBuffer : string | Buffer , timeoutInMs : number) : Promise<Buffer>;
+        public static sendAndObserve(client : IPCClient, msgBuffer : string | Buffer , timeoutInMs : number, onNext : (response:Buffer)=>void, onComplete : (response:Buffer)=>void, onError : (response:Buffer)=>void)
+        public static sendAndCreateObservable()
+    }
+    export interface ExternalObservable{
+        create(createCb : ()=>()=>void ):ExternalSubscription
+
+    }
+    export interface ExternalSubscription{
+        subscribe({next , complete , error}:{
+            next:(msg:string | Buffer)=>void
+            complete:(msg:string | Buffer)=>void
+            error:(msg:string | Buffer | Error)=>void
+        }):void
     }
 }
 

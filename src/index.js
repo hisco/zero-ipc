@@ -33,6 +33,7 @@ class IPCSingleDirectionServer{
     }
     
     listen(path, removeOpenFiles){
+        this._path = path;
         return new Promise((resolve , reject)=>{
             if (isNaN(path) && removeOpenFiles)
                 IPCSingleDirectionServer.saflyRemovePreviousFiles(path);
@@ -46,6 +47,25 @@ class IPCSingleDirectionServer{
             });
         })
     }
+    end(){
+        return new Promise((resolve , reject)=>{
+            this._server.close((error)=>{
+                if (error){
+                    reject(error);
+                }
+                else{
+                    resolve();
+                }
+                try{
+                    if (isNaN(path))
+                        IPCSingleDirectionServer.saflyRemovePreviousFiles(path);           
+                }
+                catch(err){
+
+                }
+            })
+        }) 
+    }
 }
 
 class IPCServer extends EventEmitter{
@@ -55,7 +75,17 @@ class IPCServer extends EventEmitter{
         super();
         this.connections = [];
         this.createMultiplax(onConnection);
+        this.messageCache = {};
         //Fixme: add auto clear tale parked
+    }
+    getMessageFromCache(msgId){
+        return this.messageCache[msgId];
+    }
+    setMessageCache(msgId , msg){
+        return this.messageCache[msgId] = msg;
+    }
+    removeMessageCache(msgId ){
+        delete this.messageCache[msgId];
     }
     createMultiplax(onConnection){
         const parked = this.parked = {};
@@ -106,7 +136,10 @@ class IPCServer extends EventEmitter{
             this.emit('removed' , connection);
         });
     }
-    
+    destory(){
+        this.outgoingServer.end();
+        this.incomingServer.end();
+    }
     
 }
 
@@ -133,9 +166,9 @@ class IPCServerConnection extends EventEmitter{
             //Todo : maybe handle close of channels, maybe reconnect? 
             //Generraly speaking it may cause lost messages or memomry increase if we handle reconnect - this is why currently it's not supported
             socket.on('end' , (endMessage)=>{
-                const msg = endMessage.toString();
+                const msg = endMessage && endMessage.toString();
                 if (msg != 'closedBySelf');
-                    this.emit('close' ,endMessage.toString())
+                    this.emit('close' ,msg)
             });
             socket.on('error' , (err)=>{
                 this.emit('close' ,err)
@@ -164,8 +197,11 @@ class IPCServerConnection extends EventEmitter{
         })
     }
     end(endMessage){
-        this.emit('close', 'closedBySelf');
-        this.connection.end(endMessage);
+        endMessage  = endMessage || 'closedBySelf';
+        const message = generateMessageId()+'cl'+endMessage;
+        this.emit('close',endMessage);
+        this.outgoingSocket.end(message);
+        this.incomingSocket.end(message);
     }
 }
 
@@ -180,10 +216,22 @@ class IPCMessage{
         this.connection = connection;
         this.id = id;
         this.kind = kind;
-        this.buffer = buffer;;
+        this.buffer = buffer;
     }
     replay(msgBuffer){
-        return this.connection.send(this.id,"mr",msgBuffer);
+        return this.connection.send(this.id,'mr',msgBuffer);
+    }
+    sendData(msgBuffer){
+        return this.connection.send(this.id,'od',msgBuffer);
+    }
+    sendAccepted(){
+        return this.connection.send(this.id,'oa','');
+    }
+    endSuccess(){
+        return this.connection.send(this.id,'os','');
+    }
+    endError(msgBuffer){
+        return this.connection.send(this.id,'oe',msgBuffer);
     }
     toString(encoding){
         return this.buffer.toString(encoding);
@@ -215,19 +263,13 @@ class IPCClient extends EventEmitter{
 
     }
     _waitAndSend(id , kind , msgBuffer){
+        var ipcClient = this;
         return this.whenReady()
-            .then(()=>{
-                var ipcClient = this;
+            .then(function onEndWait(){
                 ipcClient.writeQueue.push(function onAction(){
                     send(ipcClient,id,kind,msgBuffer , ipcClient.writeQueue.release)
                 })
             })
-    }
-    _send(id , kind , msgBuffer){
-        var ipcClient = this;
-        ipcClient.writeQueue.push(function onAction(){
-            send(ipcClient,id,kind,msgBuffer , ipcClient.writeQueue.release)
-        })
     }
     whenReady(){
         return this._whenReady;
@@ -270,15 +312,42 @@ class IPCClient extends EventEmitter{
     sendWithReplay(msgBuffer  , timeoutMs , cb){
         return sendWithReplay(this ,msgBuffer  , timeoutMs ,cb)
     }
-    static promiseSendWithReplay(client,veryLongString , timeoutMs){
+    sendAndObserve(msgBuffer,timeoutMs,onNext ,onComplete ,onError){
+        return sendAndObserve(this,msgBuffer , timeoutMs , onNext ,onComplete ,onError).dispose;
+    }
+    destory(){
+        this.connection.end();
+    }
+    static promiseSendWithReplay(client,msgBuffer , timeoutMs){
         return new Promise(function onPromise(resolve ,reject){
-            client.sendWithReplay(veryLongString ,timeoutMs, function onResponse(err,message){
+            client.sendWithReplay(msgBuffer ,timeoutMs, function onResponse(err,message){
                 if (err)
                     reject(err);
                 else 
                     resolve(message);
             });
         })
+    }
+    static sendAndObserve(client ,msgBuffer, timeoutMs , onNext ,onComplete ,onEnd){
+        return client.sendAndObserve(
+            msgBuffer,
+            timeoutMs,
+            onNext ,
+            onComplete ,
+            onEnd
+        );
+    }
+    static sendAndCreateObservable(Observable , client ,msgBuffer, timeoutMs){
+        return Observable.create(function createIpc(observer) {
+            return IPCClient.sendAndObserve(
+                client ,
+                msgBuffer,
+                timeoutMs,
+                observer.next.bind(observer),
+                observer.complete.bind(observer),
+                observer.error.bind(observer)
+            )
+        });
     }
 }
 
@@ -290,25 +359,49 @@ const startContentBuffer = MESSAGE_HEADER_LENGTH;
 function onData(data){
     var header = data.slice( 0 , MESSAGE_HEADER_LENGTH).toString();
     var contentBuf = data.slice( startContentBuffer);
+    var msgId = header.slice(0,MESSAGE_ID_LENGTH);
 
     const message = new IPCMessage(
         this, 
-        header.slice(0,MESSAGE_ID_LENGTH) ,
+        msgId ,
         header.slice(startTypeBuffer,endTypeBuffer) ,
         contentBuf
     );
-
+    var container = this.container;
     if (message.kind == 'rm'){ // rm = Request message , when a request is recived by one side
         //We trigger a special request event
-        this.container.emit('request' , message);
+        container.emit('request' , message);
+    }
+    else if (message.kind == 'ob'){ // or = Observable request , when a request is recived by one side
+        //We trigger a special request event
+        container.emit('clientObserver' , message);
     }
     else if (message.kind == 'mr'){ //mr = Message response (The response for the request).
-                                    //after one side will get a request he will respond for that request, this is that response
+        //after one side will get a request he will respond for that request, this is that response
         //We trigger an internal event that will be used to match the currect requst for the promise matching
-        this.container.emit('mr' + message.id ,message)
+        container.emit('mr' + message.id ,message)
+    }
+    else if (message.kind == 'od'){ 
+        container.emit(message.id + 'data' , message);
+    }
+    else if (message.kind == 'os'){ 
+        container.emit(message.id + 'success' , message);
+    }
+    else if (message.kind == 'oe'){ 
+        container.emit(message.id + 'error' , message);
+    }
+    else if (message.kind == 'oa'){ 
+        container.emit(message.id + 'accepted' , message);
+    }
+    else if (message.kind == 'cd'){ 
+        container.emit('observableDispose', message);
+    }
+    else if (message.kind == 'cl'){
+        //Fixme: Do something when message is close
+        // this.container.emit()
     }
     else //Any kind of message the module doesn't internally handle
-        this.container.emit('message',message);
+        container.emit('message',message);
 }
 function send(client , id , kind , msgBuffer , onFinish){
     if (kind.length!=MESSAGE_TYPE_LENGTH)
@@ -338,10 +431,10 @@ function send(client , id , kind , msgBuffer , onFinish){
 }
 function sendWithReplay(client,msgBuffer , timeoutMs , cb){
     var msgId = generateMessageId();
-    var eventId =  "mr"+msgId;
+    var eventId =  'mr'+msgId;
 
     function listener(rMsg){
-        process.nextTick(removeListener)
+        process.nextTick(removeListener);
         cb(null , rMsg);
     }
     function removeListener(){
@@ -349,19 +442,90 @@ function sendWithReplay(client,msgBuffer , timeoutMs , cb){
         clearTimeout(timeoutId);
     }
 
-    var timeoutId = setTimeout(function(){
+    var timeoutId = setTimeout(function msgReplayTimeout(){
         removeListener();
-        cb(new Error('timeout'))
+        cb(new Error('timeout'));
     }, timeoutMs);
 
     client.on(eventId ,listener);
-    client.send(msgId , "rm", msgBuffer);
+    client.send(msgId , 'rm', msgBuffer);
 
     return removeListener;
 }
+function sendAndObserve(
+    client ,
+    msgBuffer,
+    timeoutMs ,
+    onNext , 
+    onSuccess , 
+    onError
+){
+    var msgId = generateMessageId();
+    var eventId =  msgId;
+    var closed = true;
+    var accepted = false;
+
+    function nextListener(rMsg){
+        onNext(rMsg);
+    }
+    function acceptedListener(){
+        closed = false;
+        accepted = true;
+        client.removeAllListeners(eventId + 'accepted');
+        clearTimer();
+    }
+
+    function successListener(){
+        closed = true;
+        process.nextTick(removeListener);
+        onSuccess();
+    }
+    function errorListener(errorMsg){
+        closed = true;
+        process.nextTick(removeListener);
+        onError(errorMsg);
+    }
+
+    function removeListener(){
+        client.removeAllListeners(eventId + 'accepted');
+        client.removeAllListeners(eventId + 'success');
+        client.removeAllListeners(eventId + 'data');
+        client.removeAllListeners(eventId + 'error');
+        if (!closed){
+            console.log('sent cd')
+            client.send(eventId , 'cd' , '');
+            onSuccess();
+        }
+        else if (!accepted){
+            onSuccess();
+        }
+        clearTimer();
+    }
+    function clearTimer(){
+        if (timeoutId){
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
+    }
+
+    var timeoutId = setTimeout(function msgObsTimeout(){
+        removeListener();
+        onError('timeout');
+    }, timeoutMs);
+
+    client.on(eventId + 'accepted' ,acceptedListener);
+    client.on(eventId + 'data' ,nextListener);
+    client.on(eventId + 'success',successListener);
+    client.on(eventId + 'error',errorListener);
+    client.send(msgId , 'ob', msgBuffer);
+
+    return {
+        dispose : removeListener
+    }
+}
 
 function generateMessageId() {
-    var text = "";
+    var text = '';
     for (var i = 0; i < MESSAGE_ID_LENGTH; i++)
       text += MESSAGE_ID_POSSIBILITIES[Math.floor(Math.random() * MESSAGE_ID_POSSIBILITIES.length)];
     return text;
