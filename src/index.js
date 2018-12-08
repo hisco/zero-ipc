@@ -182,6 +182,12 @@ class IPCServerConnection extends EventEmitter{
             send(ipcServer,id,kind,msgBuffer , ipcServer.writeQueue.release)
         });
     }
+    sendMessage(msgBuffer){
+        var id = generateMessageId();
+        this.writeQueue.push(function onAction(){
+            send(ipcServer,id,'ms',msgBuffer , ipcServer.writeQueue.release)
+        });
+    }
     sendWithReplay(msgBuffer  , timeoutMs , cb){
         return sendWithReplay(this ,msgBuffer  , timeoutMs ,cb)
     }

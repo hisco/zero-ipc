@@ -1,4 +1,5 @@
 import * as Buffer from 'buffer';
+import { EventEmitter } from 'events';
 declare module ZeroIPC{
     export interface Net{
         createConnection({path : string} , onConnection : ()=>void):void
@@ -35,7 +36,7 @@ declare module ZeroIPC{
         push(task : ()=>void):void;
         release():void;
     }
-    export class IPCServerConnection{
+    export class IPCServerConnection extends EventEmitter{
         public id : string;
         public container:any;
         public outgoingSocket:NetClient;
@@ -48,7 +49,7 @@ declare module ZeroIPC{
 
 
     }
-    export class IPCServer{
+    export class IPCServer extends EventEmitter{
         constructor(onConnection? : onConnection);
         private createMultiplax(onConnection : onConnection):void;
         public listen(listenConfig : {in : string|number , out:string|number , removeOpenFiles:boolean}):void;
@@ -56,12 +57,14 @@ declare module ZeroIPC{
 
     }
 
-    export class IPCClient{
+    export class IPCClient extends EventEmitter{
         static net:Net;
         static fs:FS;
         static saflyRemovePreviousFiles(path:string):void;
-        constructor(onClientSocket : onClientSocket);
+        constructor(paths:{in:string , out:string},onClientSocket : onClientSocket);
         listen(path:string|number , removeOpenFiles? : boolean):Promise<void>;
+        public send(id : string , kind : string,msgBuffer : string | Buffer ):void;
+        public sendMessage(msgBuffer : string | Buffer ):void;
         public sendWithReplay(msgBuffer : string | Buffer , timeoutInMs : number , onResponse : (response:Buffer)=>void):void;
         public sendAndObserve(msgBuffer : string | Buffer , timeoutInMs : number , onNext : (response:Buffer)=>void, onComplete : (response:Buffer)=>void, onError : (response:Buffer)=>void):void;
         public static promiseSendWithReplay(client : IPCClient, msgBuffer : string | Buffer , timeoutInMs : number) : Promise<Buffer>;
